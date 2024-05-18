@@ -1,0 +1,173 @@
+import pandas as pd
+import tkinter as tk
+from tkinter import ttk
+from bs4 import BeautifulSoup
+import requests
+import unidecode
+
+# Function to scrape hotel information from the URL
+def scrape_hotels(cityCode, checkin, checkout):
+    city = ''
+    url = (
+            'https://www.booking.com/searchresults.html?ss=' + city + '&label=gen173nr' '-1FCAEoggI46AdIM1gEaOQBiAEBmAExuAEHyAEP2AEB6AEB''-AECiAIBqAIDuAKo8sKxBsACAdICJGZlZWVmNGJjLWI2OGEtNGM0OS05ODk0LTM2ZGQ4YzkxYzY0MNgCBeACAQ&aid=304142&lang=en-us'
+                                                                      '&sb=1&src_elem=sb&src=index&dest_id=' + cityCode + '&dest_type=city&checkin=' + checkin +
+            '&checkout=' + checkout + '&group_adults=2&no_rooms=1&group_children=0')
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (X11; CrOS x86_64 8172.45.0) AppleWebKit/537.36 (KHTML, likeGecko) '
+                      'Chrome/51.0.2704.64'
+                      'Safari/537.36',
+        'Accept-Language': 'en-US, en;q=0.5'}
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    hotels = soup.find_all('div', {'data-testid': 'property-card'})
+    hotels_data = []
+
+    for hotel in hotels:
+
+        if(len(hotels_data)==10):
+            break
+
+        name_element = hotel.find('div', {'data-testid': 'title'})
+        name = name_element.text.strip() if name_element else 'NOT GIVEN'
+
+        address_element = hotel.find('span', {'data-testid': 'address'})
+        address = address_element.text.strip() if address_element else 'NOT GIVEN'
+
+        distance_element = hotel.find('span', {'data-testid': 'distance'})
+        distance = distance_element.text.strip() if distance_element else 'NOT GIVEN'
+
+        rating_element = hotel.find('a', {'data-testid': 'secondary-review-score-link'})
+        rating = rating_element.text.strip() if rating_element else 'NOT GIVEN'
+
+        price_element = hotel.find('span', {'data-testid': 'price-and-discounted-price'})
+        price = price_element.text.strip() if price_element else 'NOT GIVEN'
+
+        hotels_data.append({
+            'name': name,
+            'address': address,
+            'distance': distance,
+            'rating': rating,
+            'price': price
+        })
+
+        def fix_price(hotels):
+            for hotel in hotels:
+                hotel['price'] = unidecode.unidecode(hotel['price'])
+                hotel['price'] = hotel['price'].replace('TL ', '')
+                hotel['price'] = float(hotel['price'].replace(',',''))
+            hotels.sort(key=lambda hotel: hotel['price'], reverse=False)
+
+            return hotels
+
+    fix_price(hotels_data)
+
+    return pd.DataFrame(hotels_data)
+
+# Initialize Tkinter window
+root = tk.Tk()
+root.title("Hotel Listings")
+root.state('zoomed')
+
+# Create a frame for city selection
+city_frame = ttk.Frame(root)
+city_frame.pack(padx=10, pady=5)
+
+# Label for city selection
+city_label = ttk.Label(city_frame, text="Select City:")
+city_label.grid(row=0, column=0)
+
+# Dropdown for city selection
+cities = ['Marseille', 'Rome', 'Paris', 'London', 'Berlin', 'Seville', 'Turin', 'Prague', 'Naples', 'Milan']
+city_var = tk.StringVar(root)
+city_var.set(cities[0])  # Default city selection
+city_dropdown = ttk.Combobox(city_frame, textvariable=city_var, values=cities)
+city_dropdown.bind('<<Combobox selected>>', city_dropdown.get())
+city_dropdown.grid(row=0, column=1)
+
+# Create a frame for date entry
+date_frame = ttk.Frame(root)
+date_frame.pack(padx=10, pady=5)
+
+# Label and entry fields for check-in and check-out dates
+checkin_label = ttk.Label(date_frame, text="Check-in Date (YYYY-MM-DD):")
+checkin_label.grid(row=0, column=0)
+checkin_entry = ttk.Entry(date_frame)
+checkin_entry.grid(row=0, column=1)
+
+checkout_label = ttk.Label(date_frame, text="Check-out Date (YYYY-MM-DD):")
+checkout_label.grid(row=1, column=0)
+checkout_entry = ttk.Entry(date_frame)
+checkout_entry.grid(row=1, column=1)
+
+
+def click_button():
+    citiesandcodes = ['Marseille', '-1449947', 'Rome', '-126693', 'Paris', '-1456928', 'London', '-2601889', 'Berlin',
+                      '-1746443',
+                      'Seville', '-402849', 'Turin', '-130938', 'Prague', '-553173', 'Naples', '-122902', 'Milan',
+                      '-121726']
+
+    selected_city = city_dropdown.get()
+    code = ''
+
+    for x in range(0, len(citiesandcodes), 2):
+        if selected_city == citiesandcodes[x]:
+            code = citiesandcodes[x + 1]
+            break
+
+    checkin = checkin_entry.get()
+    checkout = checkout_entry.get()
+
+    hotels = scrape_hotels(code, checkin, checkout)
+
+    # Convert TL to Euro if selected
+    if currency_var.get() == "Euro":
+        hotels['price'] = hotels['price'] / 30
+
+    # Save the data to a CSV file
+    hotels.to_csv('test_hotels.csv', index=False)
+
+    for child in root.winfo_children():
+        if isinstance(child, ttk.Treeview):
+            child.destroy()
+
+    table = ttk.Treeview(columns=('name', 'price', 'address', 'distance', 'rating'))
+    table.column('#0', width=0)
+    table.column("name", anchor='center')
+    table.column("price", anchor='center')
+    table.column("address", anchor='center')
+    table.column("distance", anchor='center')
+    table.column("rating", anchor='center')
+    table.heading('name', text='Name')
+    table.heading('price', text='Price')
+    table.heading('address', text='Address')
+    table.heading('distance', text='Distance')
+    table.heading('rating', text='Rating')
+
+    for index, row in hotels.head(5).iterrows():
+        table.insert("", index,
+                     values=(row['name'], row['price'], row['address'], row['distance'], row['rating']))
+    table.pack()
+
+# Create a frame for currency selection
+currency_frame = ttk.Frame(root)
+currency_frame.pack(padx=10, pady=5)
+
+# Label for currency selection
+currency_label = ttk.Label(currency_frame, text="Select Currency:")
+currency_label.grid(row=0, column=0)
+
+# Radio button for currency selection
+currency_var = tk.StringVar()
+currency_var.set("Euro")  # Default currency selection
+euro_radio = ttk.Radiobutton(currency_frame, text="Euro", variable=currency_var, value="Euro", command=click_button)
+euro_radio.grid(row=0, column=1)
+tl_radio = ttk.Radiobutton(currency_frame, text="TL", variable=currency_var, value="TL", command=click_button)
+tl_radio.grid(row=0, column=2)
+
+# Button to update hotel data
+update_button = ttk.Button(root, text="Update Hotels", command=click_button)
+update_button.pack(padx=10, pady=5)
+
+# Run the Tkinter event loop
+root.mainloop()
